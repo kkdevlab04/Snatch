@@ -271,7 +271,7 @@
                         <Grid Style="{StaticResource Row}">
                             <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="단축어 치면 문장으로 바꾸기" Style="{StaticResource Label}"/>
-                                <TextBlock Text="예: shh → 이메일 · 영문 입력 상태에서, 영문·숫자 단축어만" Style="{StaticResource Sub}"/>
+                                <TextBlock Text="예: shh → 이메일 · 영문 입력에선 영문·숫자, 한글 입력에선 자음(ㅅㅅㅅ) 단축어" Style="{StaticResource Sub}"/>
                             </StackPanel>
                             <CheckBox x:Name="ExpandChk" HorizontalAlignment="Right" VerticalAlignment="Center" MinWidth="0"/>
                         </Grid>

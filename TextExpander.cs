@@ -7,7 +7,8 @@ namespace Snatch;
 /// <summary>
 /// Espanso식 텍스트 자동 바꾸기. 어디서든 단축어(예: shh)를 치면 지우고 저장된 문장을 대신 입력.
 /// 전역 저수준 키보드 훅으로 영문/숫자 키만 따라가고, 바꿀 땐 클립보드 없이 SendInput 유니코드로 직접 입력(히스토리 오염 없음).
-/// shortcut: 단축어는 영문·숫자만, 한글 입력모드에선 동작 안 함 — 한글 단축어가 필요해지면 ToUnicodeEx+IME 조합 추적으로 확장.
+/// 자음 단축어(ㅅㅅㅅ)는 두벌식 키 → 자음으로 따로 추적해 한글 입력모드에서만 바꾼다.
+/// shortcut: 두벌식 자판 기준(세벌식 아님), 자음 단축어만 지원 — 모음 섞인 한글 단축어는 음절 조합 때문에 지울 글자 수가 어긋남.
 /// </summary>
 public sealed class TextExpander : IDisposable
 {
@@ -15,7 +16,8 @@ public sealed class TextExpander : IDisposable
     private readonly Action<Action> _post;
     private readonly LowLevelKeyboardProc _proc;   // GC 방지용 참조 유지
     private IntPtr _hook;
-    private readonly StringBuilder _buf = new();
+    private readonly StringBuilder _buf = new();    // 영문/숫자 키 기록
+    private readonly StringBuilder _jbuf = new();   // 같은 키를 두벌식 자음으로 기록
     private IntPtr _bufWindow;
     private bool _ownWindow;
 
@@ -36,6 +38,7 @@ public sealed class TextExpander : IDisposable
         Debug.Assert(Match("x shh", s)?.Text == "a@b.c");
         Debug.Assert(Match("pushh", s) == null);   // 단어 중간은 안 바뀜
         Debug.Assert(Match(" hh", s)?.Text == "x");
+        Debug.Assert(Match(" ㅅㅅ", new List<Snippet> { new() { Trigger = "ㅅㅅ", Text = "j" } })?.Text == "j");
     }
 
     public void Dispose()
@@ -62,33 +65,45 @@ public sealed class TextExpander : IDisposable
         var fg = GetForegroundWindow();
         if (fg != _bufWindow)
         {
-            _buf.Clear(); _bufWindow = fg;
+            _buf.Clear(); _jbuf.Clear(); _bufWindow = fg;
             GetWindowThreadProcessId(fg, out uint pid);
             _ownWindow = pid == (uint)Environment.ProcessId;   // 설정 창에서 단축어 입력할 땐 바꾸면 안 됨
         }
         if (_ownWindow) return;
 
         if (vk is VK_SHIFT or VK_LSHIFT or VK_RSHIFT or VK_CAPITAL) return;
-        if (vk == VK_BACK) { if (_buf.Length > 0) _buf.Length--; return; }
+        if (vk == VK_BACK) { if (_buf.Length > 0) _buf.Length--; if (_jbuf.Length > 0) _jbuf.Length--; return; }
 
         bool mod = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 || (GetAsyncKeyState(VK_MENU) & 0x8000) != 0
                    || (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 || (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
         bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-        char c = '\0';
-        if (!mod && vk >= 'A' && vk <= 'Z') c = (char)(vk + 32);
-        else if (!mod && !shift && vk >= '0' && vk <= '9') c = (char)vk;
+        char c = '\0', j = '\0';
+        if (!mod && vk >= 'A' && vk <= 'Z') { c = (char)(vk + 32); j = Jamo(vk, shift); }
+        else if (!mod && !shift && vk >= '0' && vk <= '9') c = j = (char)vk;
 
-        if (c == '\0') { _buf.Clear(); _buf.Append(' '); return; }   // 그 외 키 = 단어 경계
-        _buf.Append(c);
+        if (c == '\0') { _buf.Clear(); _buf.Append(' '); _jbuf.Clear(); _jbuf.Append(' '); return; }   // 그 외 키 = 단어 경계
+        _buf.Append(c); _jbuf.Append(j);
         if (_buf.Length > 64) _buf.Remove(0, _buf.Length - 64);
+        if (_jbuf.Length > 64) _jbuf.Remove(0, _jbuf.Length - 64);
 
+        bool jamo = false;
         var hit = Match(_buf.ToString(), _snippets());
+        if (hit == null) { hit = Match(_jbuf.ToString(), _snippets()); jamo = hit != null; }
         if (hit == null) return;
-        _buf.Clear();
+        _buf.Clear(); _jbuf.Clear();
         int erase = hit.Trigger.Length;
         string text = hit.Text;
-        // 마지막 글자가 앱에 먼저 들어간 뒤 지워야 하므로 훅 밖에서 처리
-        _post(() => { if (!IsHangulMode(fg)) Expand(erase, text); });
+        // 마지막 글자가 앱에 먼저 들어간 뒤 지워야 하므로 훅 밖에서 처리. 자음 단축어는 한글 모드에서만, 영문 단축어는 영문 모드에서만
+        _post(() => { if (IsHangulMode(fg) == jamo) Expand(erase, text); });
+    }
+
+    // 두벌식: 영문 키 → 자음/모음. Shift면 쌍자음(ㅃㅉㄸㄲㅆ)과 ㅒㅖ.
+    private const string JamoPlain = "ㅁㅠㅊㅇㄷㄹㅎㅗㅑㅓㅏㅣㅡㅜㅐㅔㅂㄱㄴㅅㅕㅍㅈㅌㅛㅋ";   // A~Z 순서
+    private const string JamoShiftKeys = "EPQRTWO", JamoShiftChars = "ㄸㅖㅃㄲㅆㅉㅒ";
+    private static char Jamo(uint vk, bool shift)
+    {
+        int s = shift ? JamoShiftKeys.IndexOf((char)vk) : -1;
+        return s >= 0 ? JamoShiftChars[s] : JamoPlain[(int)vk - 'A'];
     }
 
     /// <summary>buffer 끝이 단축어로 끝나고, 그 앞이 단어 경계(시작/공백)면 매칭. 긴 단축어 우선.</summary>

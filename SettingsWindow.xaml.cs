@@ -46,9 +46,9 @@ public partial class SettingsWindow : Window
     private void OnSnipSave(object sender, RoutedEventArgs e)
     {
         var t = SnipTrigger.Text.Trim().ToLowerInvariant();
-        if (t.Length == 0 || !t.All(char.IsAsciiLetterOrDigit))
+        if (t.Length == 0 || !t.All(ch => char.IsAsciiLetterOrDigit(ch) || (ch >= 'ㄱ' && ch <= 'ㅎ')))   // 영문·숫자·자음(ㄱ~ㅎ)
         {
-            MessageBox.Show(this, "단축어는 영문·숫자만 쓸 수 있어요.", "단축어", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, "단축어는 영문·숫자·자음만 쓸 수 있어요.", "단축어", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         if (SnipText.Text.Length == 0) return;
