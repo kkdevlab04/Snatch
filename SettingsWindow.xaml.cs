@@ -12,6 +12,7 @@ public partial class SettingsWindow : Window
     {
         InitializeComponent();
         _settings = settings;
+        _snips = _settings.Snippets.Select(s => new Snippet { Trigger = s.Trigger, Text = s.Text }).ToList();
         RefreshList();
         HideBox.Text = _settings.AutoHideSeconds.ToString();
         DlText.Text = _settings.ResolvedDownloads;
@@ -29,10 +30,18 @@ public partial class SettingsWindow : Window
         SetSnipMode(null);
     }
 
-    private readonly List<int> _shown = new();   // 목록 행 → Snippets 인덱스 (검색으로 걸러져도 원래 위치 기억)
+    private readonly List<int> _shown = new();   // 목록 행 → _snips 인덱스 (검색으로 걸러져도 원래 위치 기억)
+    private List<Snippet> _snips;                 // 편집본. 전체 저장을 눌러야 _settings에 반영됨
+    private bool _snipDirty;                      // 저장 안 한 단축어 변경이 있는지
     private bool _suppress;                       // 목록을 다시 채울 때 편집칸을 덮어쓰지 않게
-    private int _editing = -1;                    // 지금 편집 중인 Snippets 인덱스, -1이면 새 단축어
+    private int _editing = -1;                    // 지금 편집 중인 _snips 인덱스, -1이면 새 단축어
     private bool _delArmed;                       // 삭제는 두 번 눌러야 실행
+
+    private void MarkSnipDirty()
+    {
+        _snipDirty = true;
+        SavedText.Text = "단축어 변경됨 · 저장을 눌러야 적용돼요";
+    }
 
     private void RefreshSnips()
     {
@@ -42,9 +51,9 @@ public partial class SettingsWindow : Window
             SnipList.Items.Clear();
             _shown.Clear();
             var q = SnipSearch.Text.Trim();
-            for (int i = 0; i < _settings.Snippets.Count; i++)
+            for (int i = 0; i < _snips.Count; i++)
             {
-                var s = _settings.Snippets[i];
+                var s = _snips[i];
                 if (q.Length > 0 && !s.Trigger.Contains(q, StringComparison.OrdinalIgnoreCase) && !s.Text.Contains(q, StringComparison.OrdinalIgnoreCase)) continue;
                 _shown.Add(i);
                 SnipList.Items.Add($"{s.Trigger}  →  {s.Text.Replace("\r\n", " ⏎ ").Replace("\n", " ⏎ ")}");
@@ -66,7 +75,7 @@ public partial class SettingsWindow : Window
         int row = SnipList.SelectedIndex;
         if (_suppress || row < 0 || row >= _shown.Count) return;
         _editing = _shown[row];
-        var s = _settings.Snippets[_editing];
+        var s = _snips[_editing];
         SnipTrigger.Text = s.Trigger;
         SnipText.Text = s.Text;
         SetSnipMode(s.Trigger);
@@ -99,30 +108,30 @@ public partial class SettingsWindow : Window
             return;
         }
         if (SnipText.Text.Length == 0) return;
-        int dup = _settings.Snippets.FindIndex(s => s.Trigger == t);
-        if (_editing >= 0 && _editing < _settings.Snippets.Count)
+        int dup = _snips.FindIndex(s => s.Trigger == t);
+        if (_editing >= 0 && _editing < _snips.Count)
         {
             if (dup >= 0 && dup != _editing)
             {
                 MessageBox.Show(this, $"'{t}' 단축어는 이미 있어요. 다른 이름을 쓰세요.", "단축어", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
-            _settings.Snippets[_editing].Trigger = t;
-            _settings.Snippets[_editing].Text = SnipText.Text;
+            _snips[_editing].Trigger = t;
+            _snips[_editing].Text = SnipText.Text;
         }
-        else if (dup >= 0) _settings.Snippets[dup].Text = SnipText.Text;   // 같은 단축어면 덮어쓰기
-        else _settings.Snippets.Add(new Snippet { Trigger = t, Text = SnipText.Text });
-        _settings.Save();
+        else if (dup >= 0) _snips[dup].Text = SnipText.Text;   // 같은 단축어면 덮어쓰기
+        else _snips.Add(new Snippet { Trigger = t, Text = SnipText.Text });
+        MarkSnipDirty();
         RefreshSnips();
         OnSnipNew(sender, e);
     }
 
     private void OnSnipRemove(object sender, RoutedEventArgs e)
     {
-        if (_editing < 0 || _editing >= _settings.Snippets.Count) return;
+        if (_editing < 0 || _editing >= _snips.Count) return;
         if (!_delArmed) { _delArmed = true; SnipDelBtn.Content = "정말 삭제?"; return; }   // 한 번 더 눌러야 삭제
-        _settings.Snippets.RemoveAt(_editing);
-        _settings.Save();
+        _snips.RemoveAt(_editing);
+        MarkSnipDirty();
         RefreshSnips();
         OnSnipNew(sender, e);
     }
@@ -238,7 +247,9 @@ public partial class SettingsWindow : Window
         _settings.ToastPosition = PosBox.SelectedValue as string ?? "Right";
         _settings.YoutubeDownload = YtChk.IsChecked == true;
         _settings.TextExpand = ExpandChk.IsChecked == true;
+        _settings.Snippets = _snips;   // 단축어는 여기서만 반영
         _settings.Save();
+        _snipDirty = false;
         Saved?.Invoke();
         MetaFlash();
     }
@@ -248,5 +259,11 @@ public partial class SettingsWindow : Window
         SavedText.Text = "저장됨 ✓";
     }
 
-    private void OnCloseBtn(object sender, RoutedEventArgs e) => Close();
+    // 저장 안 한 단축어가 있으면 닫기 전에 확인
+    private void OnCloseBtn(object sender, RoutedEventArgs e)
+    {
+        if (_snipDirty && MessageBox.Show(this, "저장 안 한 단축어 변경이 있어요. 그래도 닫을까요?", "단축어",
+                MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        Close();
+    }
 }
