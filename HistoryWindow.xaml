@@ -5,7 +5,7 @@
         WindowStartupLocation="CenterScreen" Background="#FF1E1E24"
         ResizeMode="CanResize" ShowInTaskbar="False" Topmost="True"
         KeyDown="OnKey">
-    <Grid Margin="10">
+    <Grid Margin="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -17,14 +17,14 @@
                  Background="#FF15151A" Foreground="White" BorderBrush="#33FF33"
                  BorderThickness="1" TextChanged="OnSearchChanged"/>
 
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,0">
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,6,0,0">
             <Button x:Name="FAll"   Content="전체"   Click="OnFilter" Tag="all"   Padding="10,3" Margin="0,0,4,0"/>
             <Button x:Name="FImg"   Content="이미지" Click="OnFilter" Tag="image" Padding="10,3" Margin="0,0,4,0"/>
             <Button x:Name="FText"  Content="텍스트" Click="OnFilter" Tag="text"  Padding="10,3" Margin="0,0,4,0"/>
             <Button x:Name="FColor" Content="색상"   Click="OnFilter" Tag="color" Padding="10,3"/>
         </StackPanel>
 
-        <ListBox x:Name="RowsList" Grid.Row="2" Margin="0,8,0,0"
+        <ListBox x:Name="RowsList" Grid.Row="2" Margin="0,6,0,0"
                  Background="Transparent" BorderThickness="0"
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                  VirtualizingStackPanel.IsVirtualizing="True"
@@ -45,7 +45,7 @@
             </ListBox.ItemContainerStyle>
         </ListBox>
 
-        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
             <TextBlock x:Name="CountText" Foreground="#AAB0B8" FontSize="11"
                        VerticalAlignment="Center" Margin="0,0,10,0"/>
             <Button Content="전체 삭제" Click="OnClearAll" Padding="10,4"/>

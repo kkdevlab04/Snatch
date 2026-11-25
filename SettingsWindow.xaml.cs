@@ -26,21 +26,68 @@ public partial class SettingsWindow : Window
         UpdateShotDirText();
         ExpandChk.IsChecked = _settings.TextExpand;
         RefreshSnips();
+        SetSnipMode(null);
     }
+
+    private readonly List<int> _shown = new();   // 목록 행 → Snippets 인덱스 (검색으로 걸러져도 원래 위치 기억)
+    private bool _suppress;                       // 목록을 다시 채울 때 편집칸을 덮어쓰지 않게
+    private int _editing = -1;                    // 지금 편집 중인 Snippets 인덱스, -1이면 새 단축어
+    private bool _delArmed;                       // 삭제는 두 번 눌러야 실행
 
     private void RefreshSnips()
     {
-        SnipList.Items.Clear();
-        foreach (var s in _settings.Snippets)
-            SnipList.Items.Add($"{s.Trigger}  →  {s.Text.Replace("\r\n", " ⏎ ").Replace("\n", " ⏎ ")}");
+        _suppress = true;
+        try
+        {
+            SnipList.Items.Clear();
+            _shown.Clear();
+            var q = SnipSearch.Text.Trim();
+            for (int i = 0; i < _settings.Snippets.Count; i++)
+            {
+                var s = _settings.Snippets[i];
+                if (q.Length > 0 && !s.Trigger.Contains(q, StringComparison.OrdinalIgnoreCase) && !s.Text.Contains(q, StringComparison.OrdinalIgnoreCase)) continue;
+                _shown.Add(i);
+                SnipList.Items.Add($"{s.Trigger}  →  {s.Text.Replace("\r\n", " ⏎ ").Replace("\n", " ⏎ ")}");
+            }
+            SnipList.SelectedIndex = _shown.IndexOf(_editing);   // 편집 중인 항목이 보이면 그대로 선택 유지
+        }
+        finally { _suppress = false; }
     }
 
+    private void OnSnipSearch(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    {
+        SnipHint.Visibility = string.IsNullOrEmpty(SnipSearch.Text) ? Visibility.Visible : Visibility.Collapsed;
+        RefreshSnips();
+    }
+
+    // 목록 항목을 누르면 그 단축어를 편집 모드로 불러옴. 저장하면 그 항목이 바뀜(이름 바꿔도 같은 항목).
     private void OnSnipSelect(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        int i = SnipList.SelectedIndex;
-        if (i < 0 || i >= _settings.Snippets.Count) return;
-        SnipTrigger.Text = _settings.Snippets[i].Trigger;
-        SnipText.Text = _settings.Snippets[i].Text;
+        int row = SnipList.SelectedIndex;
+        if (_suppress || row < 0 || row >= _shown.Count) return;
+        _editing = _shown[row];
+        var s = _settings.Snippets[_editing];
+        SnipTrigger.Text = s.Trigger;
+        SnipText.Text = s.Text;
+        SetSnipMode(s.Trigger);
+    }
+
+    private void OnSnipNew(object sender, RoutedEventArgs e)
+    {
+        _editing = -1;
+        SnipList.SelectedIndex = -1;
+        SnipTrigger.Clear(); SnipText.Clear();
+        SetSnipMode(null);
+    }
+
+    // name이 null이면 새 단축어 모드
+    private void SetSnipMode(string? name)
+    {
+        _delArmed = false;
+        SnipDelBtn.Content = "삭제";
+        SnipDelBtn.IsEnabled = name != null;
+        SnipMode.Text = name == null ? "새 단축어" : $"편집 중: {name}";
+        SnipSaveBtn.Content = name == null ? "추가" : "수정 저장";
     }
 
     private void OnSnipSave(object sender, RoutedEventArgs e)
@@ -52,21 +99,32 @@ public partial class SettingsWindow : Window
             return;
         }
         if (SnipText.Text.Length == 0) return;
-        var hit = _settings.Snippets.FirstOrDefault(s => s.Trigger == t);
-        if (hit != null) hit.Text = SnipText.Text;
+        int dup = _settings.Snippets.FindIndex(s => s.Trigger == t);
+        if (_editing >= 0 && _editing < _settings.Snippets.Count)
+        {
+            if (dup >= 0 && dup != _editing)
+            {
+                MessageBox.Show(this, $"'{t}' 단축어는 이미 있어요. 다른 이름을 쓰세요.", "단축어", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            _settings.Snippets[_editing].Trigger = t;
+            _settings.Snippets[_editing].Text = SnipText.Text;
+        }
+        else if (dup >= 0) _settings.Snippets[dup].Text = SnipText.Text;   // 같은 단축어면 덮어쓰기
         else _settings.Snippets.Add(new Snippet { Trigger = t, Text = SnipText.Text });
         _settings.Save();
         RefreshSnips();
-        SnipTrigger.Clear(); SnipText.Clear();
+        OnSnipNew(sender, e);
     }
 
     private void OnSnipRemove(object sender, RoutedEventArgs e)
     {
-        int i = SnipList.SelectedIndex;
-        if (i < 0 || i >= _settings.Snippets.Count) return;
-        _settings.Snippets.RemoveAt(i);
+        if (_editing < 0 || _editing >= _settings.Snippets.Count) return;
+        if (!_delArmed) { _delArmed = true; SnipDelBtn.Content = "정말 삭제?"; return; }   // 한 번 더 눌러야 삭제
+        _settings.Snippets.RemoveAt(_editing);
         _settings.Save();
         RefreshSnips();
+        OnSnipNew(sender, e);
     }
 
     private void UpdateShotDirText() => ShotDirText.Text = Capture.ScreenshotFolder(_settings);
